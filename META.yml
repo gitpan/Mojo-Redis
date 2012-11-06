@@ -1,5 +1,5 @@
 ---
-abstract: 'asynchronous Redis client for L<Mojolicious>.'
+abstract: 'Asynchronous Redis client for L<Mojolicious>.'
 author:
   - 'Marcus Ramberg <mramberg@cpan.org>'
 build_requires:
@@ -25,4 +25,4 @@ resources:
   bugtracker: https://github.com/marcusramberg/mojo-redis/issues
   license: http://dev.perl.org/licenses/
   repository: http://github.com/marcusramberg/mojo-redis
-version: 0.99
+version: 0.9901
