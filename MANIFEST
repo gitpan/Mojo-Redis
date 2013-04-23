@@ -22,6 +22,6 @@ t/redis.t
 t/redis_live.t
 t/redis_live_multi.t
 t/subscription_live.t
+t/timeout.t
 t/unicode.t
-META.yml                                 Module YAML meta-data (added by MakeMaker)
-META.json                                Module JSON meta-data (added by MakeMaker)
+META.yml                                 Module meta-data (added by MakeMaker)
