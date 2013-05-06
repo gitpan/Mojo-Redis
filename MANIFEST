@@ -6,17 +6,13 @@ LICENSE
 Makefile.PL
 MANIFEST			This list of files
 MANIFEST.SKIP
-MANIFEST.skip
-MYMETA.json
 MYMETA.yml
 README
-t/.auth.t.swp
 t/00-load.t
 t/00-pod-coverage.t
 t/00-pod.t
 t/auth.t
 t/leak.t
-t/pod.t
 t/pubsub_live.t
 t/redis.t
 t/redis_live.t
