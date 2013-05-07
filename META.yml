@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Mojo-Redis
-version:            0.9906
+version:            0.9907
 abstract:           Asynchronous Redis client for L<Mojolicious>.
 author:
     - Marcus Ramberg <mramberg@cpan.org>
