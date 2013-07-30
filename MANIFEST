@@ -9,6 +9,7 @@ MANIFEST.SKIP
 MYMETA.json
 MYMETA.yml
 README
+t/.auth.t.swp
 t/00-load.t
 t/00-pod-coverage.t
 t/00-pod.t
