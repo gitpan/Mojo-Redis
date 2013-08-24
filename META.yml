@@ -25,4 +25,4 @@ resources:
   bugtracker: https://github.com/marcusramberg/mojo-redis/issues
   license: http://dev.perl.org/licenses/
   repository: http://github.com/marcusramberg/mojo-redis
-version: 0.9912
+version: 0.9913

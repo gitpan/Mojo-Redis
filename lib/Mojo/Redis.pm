@@ -1,6 +1,6 @@
 package Mojo::Redis;
 
-our $VERSION = '0.9912';
+our $VERSION = '0.9913';
 use Mojo::Base 'Mojo::EventEmitter';
 
 use Mojo::IOLoop;
@@ -39,7 +39,7 @@ has protocol => sub {
 sub connected { $_[0]->{_connection} ? 1 : 0 }
 
 sub timeout {
-  return $_[0]->{timeout} // 300 unless @_ > 1;
+  return $_[0]->{timeout} || 0 unless @_ > 1;
   my($self, $t) = @_;
   my $id = $self->{_connection};
 
@@ -119,9 +119,7 @@ sub connect {
         close => sub {
           $self->_inform_queue;
           $self->emit('close');
-          delete $self->{_message_queue};
-          delete $self->{_connecting};
-          delete $self->{_connection};
+          $self->disconnect;
         }
       );
       $stream->on(
@@ -163,8 +161,11 @@ sub connect {
 
 sub disconnect {
   my $self = shift;
+  my $id = delete $self->{_connection};
 
-  $self->ioloop->remove($self->{_connection}) if $self->{_connection};
+  delete $self->{_connecting};
+
+  $self->ioloop->remove($id) if $id and $self->ioloop;
   $self;
 }
 
@@ -253,9 +254,6 @@ sub execute {
 
 sub _send_next_message {
   my ($self) = @_;
-  my $id = $self->{_connection} or return;
-  my $stream = $self->ioloop->stream($id);
-  my $protocol = $self->protocol;
 
   $self->{_connecting} and return;
 
@@ -268,7 +266,7 @@ sub _send_next_message {
       push @$cmd_arg, {type => '$', data => $token};
     }
 
-    $self->_write($stream, { type => '*', data => $cmd_arg });
+    $self->_write({ type => '*', data => $cmd_arg }) or last;
   }
 }
 
@@ -329,15 +327,31 @@ sub _inform_queue {
 }
 
 sub _write {
-  my($self, $stream, $what) = @_;
-  my $message = $self->protocol->encode($what);
+  my($self, $what) = @_;
+  my $ioloop = $self->ioloop;
+  my($stream, $message);
 
+  unless($stream = $ioloop->stream($self->{_connection} || 0)) {
+    $self->emit(error => 'Internal error: stream is lost!');
+    $self->disconnect;
+    return;
+  }
+  if(!$ioloop->is_running and $stream->is_readable) {
+    $self->emit(error => 'Closing invalid stream');
+    $stream->close;
+    $self->disconnect;
+    return;
+  }
+
+  $message = $self->protocol->encode($what);
   $stream->write($message);
 
   if(DEBUG) {
     $message =~ s/\r?\n/','/g;
     warn "REDIS[@{[$self->{_connection}]}] <<< ['$message']\n";
   }
+
+  return 1;
 }
 
 sub _server_to_url {
@@ -374,7 +388,7 @@ Mojo::Redis - Asynchronous Redis client for L<Mojolicious>.
     sub {
       my ($redis, $res) = @_;
       if (defined $res) {
-        print "Got result: ", $res->[0], "\n";
+        print "Got result: ", $res, "\n";
       }
     }
   );
@@ -501,7 +515,7 @@ object will be used.
     $redis      = $redis->timeout(100);
 
 Maximum amount of time in seconds a connection can be inactive before being
-dropped, defaults to C<300>.
+dropped, defaults to C<0> - meaning no timeout.
 
 =head2 encoding
 
