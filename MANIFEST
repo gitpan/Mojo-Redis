@@ -9,9 +9,7 @@ MANIFEST.SKIP
 MYMETA.json
 MYMETA.yml
 README
-t/00-load.t
-t/00-pod-coverage.t
-t/00-pod.t
+t/00-basic.t
 t/auth.t
 t/leak.t
 t/pubsub_live.t
