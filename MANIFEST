@@ -10,11 +10,13 @@ README
 t/00-basic.t
 t/auth.t
 t/leak.t
+t/mocked.t
 t/pubsub_live.t
 t/redis.t
 t/redis_live.t
 t/redis_live_multi.t
 t/subscription_live.t
+t/subscription_live_pattern.t
 t/timeout.t
 t/unicode.t
 META.yml                                 Module YAML meta-data (added by MakeMaker)
