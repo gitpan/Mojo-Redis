@@ -12,6 +12,8 @@ t/auth.t
 t/connected.t
 t/leak.t
 t/mocked.t
+t/on-blpop.t
+t/on-message.t
 t/pubsub_live.t
 t/redis.t
 t/redis_live.t

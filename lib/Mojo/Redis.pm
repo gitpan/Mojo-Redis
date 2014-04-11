@@ -1,6 +1,6 @@
 package Mojo::Redis;
 
-our $VERSION = '0.9922';
+our $VERSION = '0.9923';
 use Mojo::Base 'Mojo::EventEmitter';
 
 use Mojo::IOLoop;
@@ -10,6 +10,8 @@ use Scalar::Util ();
 use Encode       ();
 use Carp;
 use constant DEBUG => $ENV{MOJO_REDIS_DEBUG} ? 1 : 0;
+
+my %ON_SPECIAL = map { $_, "_on_$_" } qw( blpop brpop message );
 
 has server   => '127.0.0.1:6379';
 has ioloop   => sub { Mojo::IOLoop->singleton };
@@ -94,7 +96,7 @@ sub connect {
   $auth = (split /:/, $url->userinfo || '')[1];
   $db_index = ($url->path =~ /(\d+)/)[0] || '';
 
-  $self->disconnect; # drop old connection
+  $self->disconnect if $self->{connecting} or $self->{connection}; # drop old connection
   $self->{connecting} = 1;
   $self->{connection} = $self->ioloop->client(
     { address => $url->host,
@@ -163,10 +165,46 @@ sub connect {
 sub disconnect {
   my $self = shift;
   my $id = delete $self->{connection};
+  my $connections = $self->{connections} || {};
+
+  if(my $ioloop = $self->ioloop) {
+    $ioloop->remove($id) if $id;
+    $connections->{$_} and $connections->{$_}->disconnect for keys %$connections;
+  }
 
   delete $self->{connecting};
+  delete $self->{connections};
 
-  $self->ioloop->remove($id) if $id and $self->ioloop;
+  $self;
+}
+
+sub on {
+  my($self, $event, @args) = @_;
+  my $method = @args > 1 ? $ON_SPECIAL{$event} : '';
+  my($cb, $name);
+
+  $method or return $self->SUPER::on($event, @args);
+  $cb = pop @args;
+  $name = join ':', $event, @args;
+  $self->$method($name, $event, @args);
+  $self->SUPER::on($name, $cb);
+}
+
+sub unsubscribe {
+  my($self, $event, @args) = @_;
+  my $method = $ON_SPECIAL{$event};
+  my @cb;
+
+  $method or return $self->SUPER::unsubscribe($event, @args);
+  @cb = ref $args[-1] eq 'CODE' ? (pop @args) : ();
+  $event = join ':', $event, @args;
+  $self->SUPER::unsubscribe($event, @cb);
+
+  unless($self->has_subscribers($event)) {
+    my $conn = delete $self->{connections}{$event};
+    $conn->disconnect if $conn;
+  }
+
   $self;
 }
 
@@ -186,16 +224,7 @@ sub _subscribe_generic {
   my $n = 0;
 
   if(!$cb) {
-    return Mojo::Redis::Subscription->new(
-      channels => [@channels],
-      server => $self->server,
-      ioloop => $self->ioloop,
-      encoding => $self->encoding,
-      protocol_redis => $self->protocol_redis,
-      timeout => $self->timeout,
-      type => $type,
-      connection => undef, # need to clear this when making a Subscription object from an active Redis object
-    )->connect;
+    return $self->_clone('Mojo::Redis::Subscription' => channels => [@channels], type => $type)->connect;
   }
 
   # need to attach new callback to the protocol object
@@ -322,6 +351,20 @@ sub _return_command_data {
   };
 }
 
+sub _clone {
+  my($self, $class, @args) = @_;
+
+  $class ||= ref $self;
+  $class->new({
+    encoding => $self->encoding,
+    ioloop => $self->ioloop,
+    protocol_redis => $self->protocol_redis,
+    server => $self->server,
+    timeout => $self->timeout,
+    @args,
+  });
+}
+
 sub _inform_queue {
   my ($self, @emit) = @_;
   my $cb_queue = delete $self->{cb_queue} || [];
@@ -338,6 +381,36 @@ sub _inform_queue {
       $self->has_subscribers('error') ? $self->emit_safe(error => $err) : warn $err;
     };
   }
+}
+
+sub _on_blpop {
+  my($self, $id, $method, @args) = @_;
+  my $handler;
+
+  $self->{connections}{$id} and return;
+  Scalar::Util::weaken $self;
+
+  $handler = sub {
+    $self->emit_safe($id => '', reverse @{ $_[1] });
+    $self->{connections}{$id}->$method(@args, 0, $handler);
+  };
+
+  $self->{connections}{$id} = $self->_clone(undef, timeout => 0);
+  $self->{connections}{$id}->$method(@args, 0, $handler);
+  $self->{connections}{$id}->on(error => sub { $self->emit_safe($id => $_[1], undef, undef); });
+  $self->{connections}{$id}->connect;
+}
+
+*_on_brpop = \&_on_blpop;
+
+sub _on_message {
+  my($self, $id, $method, @channels) = @_;
+
+  Scalar::Util::weaken $self;
+  $self->{connections}{$id} and return;
+  $self->{connections}{$id} = $self->subscribe(@channels);
+  $self->{connections}{$id}->on(error => sub { $self->emit_safe($id => $_[1], undef, undef); });
+  $self->{connections}{$id}->on(message => sub { shift; $self->emit_safe($id => '', @_); });
 }
 
 sub _write {
@@ -389,7 +462,35 @@ __END__
 
 Mojo::Redis - Asynchronous Redis client for L<Mojolicious>.
 
+=head1 DESCRIPTION
+
+L<Mojo::Redis> is an asynchronous L<Redis|http://redis.io> client for the
+L<Mojolicious> framework.
+
+Currently we support these Redis commands in addition to the L</METHODS>
+described in this module.
+
+  append auth bgrewriteaof bgsave blpop brpop brpoplpush config_get config_set
+  config_resetstat dbsize debug_object debug_segfault decr decrby del discard
+  echo exec exists expire expireat flushall flushdb get getbit getrange getset
+  hdel hexists hget hgetall hincrby hkeys hlen hmget hmset hset hsetnx hvals
+  incr incrby info keys lastsave lindex linsert llen lpop lpush lpushx lrange
+  lrem lset ltrim mget monitor move mset msetnx multi persist ping
+  publish quit randomkey rename renamenx rpop rpoplpush rpush
+  rpushx sadd save scard sdiff sdiffstore select set setbit setex setnx
+  setrange shutdown sinter sinterstore sismember slaveof smembers smove sort
+  spop srandmember srem strlen sunion sunionstore sync ttl type
+  unwatch watch zadd zcard zcount zincrby zinterstore zrange
+  zrangebyscore zrank zrem zremrangebyrank zremrangebyscore zrevrange
+  zrevrangebyscore zrevrank zscore zunionstore
+
+If a command is missing, then please file a
+L<bug report|https://github.com/marcusramberg/mojo-redis/issues> and use
+L</execute> in the meanwhile.
+
 =head1 SYNOPSIS
+
+=head2 Standalone
 
   use Mojo::Redis;
 
@@ -423,8 +524,7 @@ Mojo::Redis - Asynchronous Redis client for L<Mojolicious>.
   # Start IOLoop (in case it is not started yet)
   $redis->ioloop->start;
 
-Create new Mojo::IOLoop instance if you need to get blocked in a Mojolicious
-application.
+=head2 Mojolicious::Lite example
 
   use Mojolicious::Lite;
   use Mojo::Redis;
@@ -446,57 +546,91 @@ application.
     );
   };
 
+=head2 Websocket example
+
   websocket '/messages' => sub {
     my $self = shift;
     my $tx = $self->tx;
-    my $pub = Mojo::Redis->new;
-    my $sub = $pub->subscribe('messages');
+    my $redis = Mojo::Redis->new;
 
-    # message from redis
-    $sub->on(message => sub {
-      my ($sub, $message, $channel) = @_; # $channel == messages
-      $tx->send($message);
+    # messages from redis
+    $redis->on(message => 'pub:sub:channel', sub {
+      my ($redis, $err, $message, $channel) = @_; # $channel == "pub:sub:channel"
+      $tx->send($message || $err);
     });
 
     # message from websocket
     $self->on(message => sub {
       my ($self, $message) = @_;
-      $pub->publish(messages => $message);
+      $redis->publish('pub:sub:channel' => $message);
     });
+
+    $self->stash(redis => $redis);
 
     # need to clean up after websocket close
     $self->on(finish => sub {
-      undef $pub;
-      undef $sub;
+      delete $self->stash->{redis};
       undef $tx;
     });
   };
 
   app->start;
 
-=head1 DESCRIPTION
-
-L<Mojo::Redis> is an asynchronous client to L<Redis|http://redis.io> for Mojo.
-
 =head1 EVENTS
+
+=head2 blpop
+
+  $cb = $redis->on(blpop => @list_names => sub {
+    my($redis, $err, $data, $list_name) = @_;
+    warn "[REDIS BLPOP] Got ($data) from $list_name\n";
+  });
+
+This is a special event which allow you to do recurring L</blpop> without
+blocking the current L<Mojo::Redis> object. Recurring means that once
+the callback has handled the data, it will issue a new BLPOP.
+
+One of the commands below is required to stop the BLPOP loop:
+
+  $redis->on(message => @channels);
+  $redis->on(message => @channels => $cb);
+
+=head2 brpop
+
+See L</blpop>.
 
 =head2 error
 
-    $redis->on(error => sub{
-        my($redis, $error) = @_;
-        warn "[REDIS ERROR] $error\n";
-    });
+  $redis->on(error => sub {
+    my($redis, $error) = @_;
+    warn "[REDIS ERROR] $error\n";
+  });
 
 Emitted if error occurred. Called before commands callbacks.
 
 =head2 close
 
-    $redis->on(close => sub{
-        my($redis) = @_;
-        warn "[REDIS DISCONNECT]\n";
-    });
+  $redis->on(close => sub {
+    my($redis) = @_;
+    warn "[REDIS DISCONNECT]\n";
+  });
 
 Emitted when the connection to the server gets closed.
+
+=head2 message
+
+  $redis->on(message => @channels => sub {
+    my($redis, $err, $message, $channel) = @_;
+    warn "[REDIS PUBSUB] Got ($message) from $channel\n";
+  });
+
+This is a special event which allow you to L</subscribe> to messages directly
+in the current L<Mojo::Redis> object instead of using a new
+L<Mojo::Redis::Subscription> object.
+
+To unsubscribe you need to do one of these:
+
+  $redis->on(message => @channels);
+  $redis->on(message => @channels => $cb);
 
 =head1 ATTRIBUTES
 
@@ -587,142 +721,6 @@ Execute specified command on C<Redis> server. If error occurred during
 request $result will be set to undef, error string can be obtained with
 the L</error> event.
 
-=head1 REDIS METHODS
-
-=head2 append
-
-=head2 auth
-
-See L</server> instead.
-
-=head2 bgrewriteaof
-
-=head2 bgsave
-
-=head2 blpop
-
-=head2 brpop
-
-=head2 brpoplpush
-
-=head2 config_get
-
-=head2 config_resetstat
-
-=head2 config_set
-
-=head2 connected
-
-=head2 dbsize
-
-=head2 debug_object
-
-=head2 debug_segfault
-
-=head2 decr
-
-=head2 decrby
-
-=head2 del
-
-=head2 discard
-
-=head2 disconnect
-
-=head2 echo
-
-=head2 exec
-
-=head2 exists
-
-=head2 expire
-
-=head2 expireat
-
-=head2 flushall
-
-=head2 flushdb
-
-=head2 get
-
-=head2 getbit
-
-=head2 getrange
-
-=head2 getset
-
-=head2 hdel
-
-=head2 hexists
-
-=head2 hget
-
-=head2 hgetall
-
-=head2 hincrby
-
-=head2 hkeys
-
-=head2 hlen
-
-=head2 hmget
-
-=head2 hmset
-
-=head2 hset
-
-=head2 hsetnx
-
-=head2 hvals
-
-=head2 incr
-
-=head2 incrby
-
-=head2 info
-
-=head2 keys
-
-=head2 lastsave
-
-=head2 lindex
-
-=head2 linsert
-
-=head2 llen
-
-=head2 lpop
-
-=head2 lpush
-
-=head2 lpushx
-
-=head2 lrange
-
-=head2 lrem
-
-=head2 lset
-
-=head2 ltrim
-
-=head2 mget
-
-=head2 monitor
-
-=head2 move
-
-=head2 mset
-
-=head2 msetnx
-
-=head2 multi
-
-=head2 persist
-
-=head2 ping
-
-=head2 protocol
-
 =head2 psubscribe
 
 Subscribes to channels matching the given patterns.
@@ -736,72 +734,6 @@ Subscribes to channels matching the given patterns.
    $redis->publish('foo.roo' => 'hi!');
 
 psubscribe has the same interface options and capabilities as L</subscribe>.
-
-=head2 publish
-
-=head2 quit
-
-=head2 randomkey
-
-=head2 rename
-
-=head2 renamenx
-
-=head2 rpop
-
-=head2 rpoplpush
-
-=head2 rpush
-
-=head2 rpushx
-
-=head2 sadd
-
-=head2 save
-
-=head2 scard
-
-=head2 sdiff
-
-=head2 sdiffstore
-
-=head2 select
-
-See L</server> instead.
-
-=head2 set
-
-=head2 setbit
-
-=head2 setex
-
-=head2 setnx
-
-=head2 setrange
-
-=head2 shutdown
-
-=head2 sinter
-
-=head2 sinterstore
-
-=head2 sismember
-
-=head2 slaveof
-
-=head2 smembers
-
-=head2 smove
-
-=head2 sort
-
-=head2 spop
-
-=head2 srandmember
-
-=head2 srem
-
-=head2 strlen
 
 =head2 subscribe
 
@@ -822,52 +754,6 @@ object into a pure subscribe mode.
 Opens up a new connection that subscribes to the given pubsub channels.
 Returns an instance of L<Mojo::Redis::Subscription>. The existing C<$redis>
 object can still be used to L</get> data as expected.
-
-=head2 sunion
-
-=head2 sunionstore
-
-=head2 sync
-
-=head2 ttl
-
-=head2 type
-
-=head2 unwatch
-
-=head2 watch
-
-=head2 zadd
-
-=head2 zcard
-
-=head2 zcount
-
-=head2 zincrby
-
-=head2 zinterstore
-
-=head2 zrange
-
-=head2 zrangebyscore
-
-=head2 zrank
-
-=head2 zrem
-
-=head2 zremrangebyrank
-
-=head2 zremrangebyscore
-
-=head2 zrevrange
-
-=head2 zrevrangebyscore
-
-=head2 zrevrank
-
-=head2 zscore
-
-=head2 zunionstore
 
 =head1 SEE ALSO
 
