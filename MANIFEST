@@ -11,6 +11,7 @@ t/00-basic.t
 t/auth.t
 t/connected.t
 t/leak.t
+t/LeakTrap.pm
 t/mocked.t
 t/on-blpop.t
 t/on-message.t
@@ -20,6 +21,7 @@ t/redis_live.t
 t/redis_live_multi.t
 t/subscription_live.t
 t/subscription_live_pattern.t
+t/theory.t
 t/timeout.t
 t/unicode.t
 META.yml                                 Module YAML meta-data (added by MakeMaker)
