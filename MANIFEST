@@ -15,6 +15,7 @@ t/LeakTrap.pm
 t/mocked.t
 t/on-blpop.t
 t/on-message.t
+t/once-message.t
 t/pubsub_live.t
 t/redis.t
 t/redis_live.t
