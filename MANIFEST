@@ -10,6 +10,7 @@ README
 t/00-basic.t
 t/auth.t
 t/connected.t
+t/Helper.pm
 t/leak.t
 t/LeakTrap.pm
 t/mocked.t
