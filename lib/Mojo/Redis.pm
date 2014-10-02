@@ -1,6 +1,6 @@
 package Mojo::Redis;
 
-our $VERSION = '0.9928';
+our $VERSION = '1.00';
 use Mojo::Base 'Mojo::EventEmitter';
 
 use Mojo::IOLoop;
@@ -481,121 +481,25 @@ __END__
 
 =head1 NAME
 
-Mojo::Redis - Asynchronous Redis client for L<Mojolicious>.
+Mojo::Redis - DEPRECATED Redis client
 
 =head1 DESCRIPTION
 
-L<Mojo::Redis> is an asynchronous L<Redis|http://redis.io> client for the
-L<Mojolicious> framework.
+L<Mojo::Redis> is replaced by L<Mojo::Redis2>.
 
-Currently we support these Redis commands in addition to the L</METHODS>
-described in this module.
+THIS MODULE IS NO LONGER MAINTAINED AND WILL BE REPLACED BY A COMPLETELY NEW
+API DURING 2015.
 
-  append auth bgrewriteaof bgsave blpop brpop brpoplpush config_get config_set
-  config_resetstat dbsize debug_object debug_segfault decr decrby del discard
-  echo exec exists expire expireat flushall flushdb get getbit getrange getset
-  hdel hexists hget hgetall hincrby hkeys hlen hmget hmset hset hsetnx hvals
-  incr incrby info keys lastsave lindex linsert llen lpop lpush lpushx lrange
-  lrem lset ltrim mget monitor move mset msetnx multi persist ping
-  publish quit randomkey rename renamenx rpop rpoplpush rpush
-  rpushx sadd save scard sdiff sdiffstore select set setbit setex setnx
-  setrange shutdown sinter sinterstore sismember slaveof smembers smove sort
-  spop srandmember srem strlen sunion sunionstore sync ttl type
-  unwatch watch zadd zcard zcount zincrby zinterstore zrange
-  zrangebyscore zrank zrem zremrangebyrank zremrangebyscore zrevrange
-  zrevrangebyscore zrevrank zscore zunionstore
+The new API is available in L<Mojo::Redis2>. Some time during 2015, this
+module will be completely replaced by the code from L<Mojo::Redis2>.
 
-If a command is missing, then please file a
-L<bug report|https://github.com/marcusramberg/mojo-redis/issues> and use
-L</execute> in the meanwhile.
+YOU SHOULD NOT USE THIS MODULE. THE RISK OF MEMORY LEAKS AND MISSING OUT ON
+ERRORS IS INEVITABLE.
 
-=head1 SYNOPSIS
+The exact date for replacement is not yet set, but when it's replaced your
+existing L<Mojo::Redis> code I<will> break.
 
-=head2 Standalone
-
-  use Mojo::Redis;
-
-  my $redis = Mojo::Redis->new(server => '127.0.0.1:6379');
-
-  # Execute some commands
-  $redis->ping(
-    sub {
-      my ($redis, $res) = @_;
-      if (defined $res) {
-        print "Got result: ", $res, "\n";
-      }
-    }
-  );
-
-  # Work with keys
-  # Ommitting the callback still makes it non-blocking and "error" events
-  # will be called if something terrible goes wrong.
-  $redis->set(key => 'value');
-
-  $redis->get(
-    key => sub {
-      my ($redis, $res) = @_;
-      print "Value of 'key' is $res\n";
-    }
-  );
-
-  # Cleanup connection
-  $redis->quit(sub { shift->ioloop->stop });
-
-  # Start IOLoop (in case it is not started yet)
-  $redis->ioloop->start;
-
-=head2 Mojolicious::Lite example
-
-  use Mojolicious::Lite;
-  use Mojo::Redis;
-
-  get '/user' => sub {
-    my $self = shift->render_later;
-    my $uid = $self->session('uid');
-    my $redis = Mojo::Redis->new;
-
-    Mojo::IOLoop->delay(
-      sub {
-        my ($delay) = @_;
-        $redis->hgetall("user:$uid", $delay->begin);
-      },
-      sub {
-        my ($delay, $user) = @_;
-        $self->render(json=>$user);
-      },
-    );
-  };
-
-=head2 Websocket example
-
-  websocket '/messages' => sub {
-    my $self = shift;
-    my $tx = $self->tx;
-    my $redis = Mojo::Redis->new;
-
-    # messages from redis
-    $redis->on(message => 'pub:sub:channel', sub {
-      my ($redis, $err, $message, $channel) = @_; # $channel == "pub:sub:channel"
-      $tx->send($message || $err);
-    });
-
-    # message from websocket
-    $self->on(message => sub {
-      my ($self, $message) = @_;
-      $redis->publish('pub:sub:channel' => $message);
-    });
-
-    $self->stash(redis => $redis);
-
-    # need to clean up after websocket close
-    $self->on(finish => sub {
-      delete $self->stash->{redis};
-      undef $tx;
-    });
-  };
-
-  app->start;
+REPLACE L<Mojo::Redis> WITH L<Mojo::Redis2> NOW.
 
 =head1 EVENTS
 
@@ -659,10 +563,6 @@ L<Mojo::Redis> implements the following attributes.
 
 =head2 connected
 
-  $bool = $self->connected;
-
-Returns true if we are indeed connected to the redis server.
-
 =head2 encoding
 
   $encoding = $redis->encoding;
@@ -672,16 +572,7 @@ Encoding used for stored data, defaults to C<UTF-8>.
 
 =head2 ioloop
 
-  $ioloop = $redis->ioloop;
-  $redis  = $redis->ioloop(Mojo::IOLoop->new);
-
-Loop object to use for io operations, by default a L<Mojo::IOLoop> singleton
-object will be used.
-
 =head2 protocol
-
-Holds a object of L</protocol_redis>. This attribute should be considered
-internal.
 
 =head2 protocol_redis
 
@@ -800,10 +691,6 @@ object can still be used to L</get> data as expected.
 
 The opposite as L</on>. See also L<Mojo::EventEmitter/unsubscribe>.
 
-=head1 SEE ALSO
-
-L<Protocol::Redis>, L<Mojolicious>, L<Mojo::IOLoop>
-
 =head1 SUPPORT
 
 You can contact the developers "marcus" and "batman" on IRC:
@@ -826,4 +713,3 @@ This program is free software, you can redistribute it and/or modify it under
 the terms of the Artistic License version 2.0.
 
 =cut
-
